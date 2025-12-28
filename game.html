@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IRL Storm Hide & Seek (Seeded • No Server)</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    html, body { height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    #map { height:100%; }
+
+    /* Host panel */
+    #panel{
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      width: 360px;
+      max-width: calc(100vw - 20px);
+      background: rgba(255,255,255,.65);
+      border: 1px solid rgba(0,0,0,.18);
+      border-radius: 14px;
+      padding: 10px 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.12);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    #panel.hidden { display:none; }
+
+    #panel h2{ margin:0 0 8px; font-size: 14px; }
+    .note{ font-size:12px; opacity:.95; margin-bottom:8px; line-height:1.3; }
+
+    .row{ margin:10px 0; }
+    .rowHeader{
+      display:flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .rowHeader .label{ font-size: 12px; color:#222; }
+    .rowHeader .val{ font-size: 12px; color:#111; font-weight: 800; }
+
+    input[type="range"]{
+      width: 100%;
+      accent-color: #111;
+    }
+
+    .btnRow{ display:flex; gap:8px; margin-top: 8px; }
+    button{
+      flex:1;
+      padding: 10px 10px;
+      border:0;
+      border-radius: 12px;
+      background: #111;
+      color: #fff;
+      cursor: pointer;
+      font-weight: 800;
+    }
+    button.secondary{
+      background: rgba(255,255,255,.75);
+      color: #111;
+      border: 1px solid rgba(0,0,0,.25);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    button:disabled{ opacity:.45; cursor:not-allowed; }
+
+    #status{
+      margin-top: 8px;
+      font-size: 12px;
+      color: #111;
+      line-height: 1.35;
+      white-space: pre-wrap;
+    }
+
+    /* HUD */
+    #healthBox{
+      position: fixed;
+      right: 10px;
+      top: 10px;
+      z-index: 1000;
+      background: rgba(0,0,0,.48);
+      border: 1px solid rgba(255,255,255,.6);
+      border-radius: 14px;
+      padding: 10px 12px;
+      color: #fff;
+      min-width: 170px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    #healthTitle{ font-size: 12px; opacity: .9; }
+    #healthValue{ font-size: 20px; font-weight: 900; margin-top: 2px; }
+    #healthSub{ font-size: 12px; opacity: .9; margin-top: 4px; }
+
+    /* Eliminated overlay */
+    #eliminated{
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,.72);
+      color: #fff;
+      text-align: center;
+      padding: 18px;
+    }
+    #eliminated .card{
+      max-width: 520px;
+      width: calc(100vw - 36px);
+      background: rgba(20,20,20,.9);
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 18px;
+      padding: 18px 16px;
+      box-shadow: 0 16px 50px rgba(0,0,0,.4);
+    }
+    #eliminated h1{ margin:0 0 8px; font-size: 26px; }
+    #eliminated p{ margin:0; opacity: .92; line-height: 1.35; }
+
+    /* Center-pick overlay (host only, before start center chosen) */
+    #pickOverlay{
+      position: fixed;
+      inset: 0;
+      z-index: 1500;
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 14px;
+      pointer-events: none; /* taps go to map */
+      background: radial-gradient(circle at 50% 30%, rgba(0,0,0,.0), rgba(0,0,0,.35));
+    }
+    #pickOverlay .bubble{
+      pointer-events: none;
+      width: min(560px, calc(100vw - 28px));
+      background: rgba(255,255,255,.78);
+      border: 1px solid rgba(0,0,0,.18);
+      border-radius: 16px;
+      padding: 12px 12px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      box-shadow: 0 10px 30px rgba(0,0,0,.15);
+      font-size: 13px;
+      line-height: 1.3;
+      color: #111;
+    }
+    #pickOverlay .bubble b{ font-weight: 900; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Host-only: pick-center hint overlay -->
+  <div id="pickOverlay">
+    <div class="bubble">
+      <b>Tap the map to choose the starting safe-zone center.<br/>
+     
+    </div>
+  </div>
+
+  <!-- Host-only controls panel -->
+  <div id="panel" class="hidden">
+    <h2>Host Controls)</h2>
+    <div class="note">
+      Adjust sliders. Then press <b>Start</b> and <b>Copy link</b>.
+    </div>
+
+    <div class="row">
+      <div class="rowHeader"><div class="label">Start radius (m)</div><div class="val" id="v_radius"></div></div>
+      <input id="startRadius" type="range" min="100" max="3000" step="50" value="1200" />
+    </div>
+
+    <div class="row">
+      <div class="rowHeader"><div class="label">Delay before storm (s)</div><div class="val" id="v_delay"></div></div>
+      <input id="delaySec" type="range" min="0" max="300" step="5" value="60" />
+    </div>
+
+    <div class="row">
+      <div class="rowHeader"><div class="label">Shrink factor</div><div class="val" id="v_factor"></div></div>
+      <input id="shrinkFactor" type="range" min="0.40" max="0.90" step="0.05" value="0.70" />
+    </div>
+
+    <div class="row">
+      <div class="rowHeader"><div class="label">Shrink time (s)</div><div class="val" id="v_shrink"></div></div>
+      <input id="shrinkTime" type="range" min="10" max="180" step="5" value="45" />
+    </div>
+
+    <div class="row">
+      <div class="rowHeader"><div class="label">Hold time (s)</div><div class="val" id="v_hold"></div></div>
+      <input id="holdTime" type="range" min="0" max="120" step="5" value="20" />
+    </div>
+
+    <div class="row">
+      <div class="rowHeader"><div class="label">Phases</div><div class="val" id="v_phases"></div></div>
+      <input id="phases" type="range" min="1" max="20" step="1" value="6" />
+    </div>
+
+    <div class="row">
+      <div class="rowHeader"><div class="label">Damage per second</div><div class="val" id="v_dps"></div></div>
+      <input id="dps" type="range" min="1" max="30" step="1" value="6" />
+    </div>
+
+    <div class="btnRow">
+      <button id="startBtn" disabled>Start</button>
+      <button id="copyBtn" class="secondary" disabled>Copy link</button>
+    </div>
+
+    <div class="btnRow">
+      <button id="hideUiBtn" class="secondary">Hide UI</button>
+      <button id="resetBtn" class="secondary">Reset</button>
+    </div>
+
+    <div id="status"></div>
+  </div>
+
+  <!-- Small always-available "Show UI" button (host only, hidden for guests) -->
+  <div id="showUiWrap" style="position:fixed; left:10px; bottom:10px; z-index:1200; display:none;">
+    <button id="showUiBtn" class="secondary" style="padding:10px 12px; border-radius: 14px;">Show UI</button>
+  </div>
+
+  <div id="healthBox">
+    <div id="healthTitle">Your health</div>
+    <div id="healthValue">100</div>
+    <div id="healthSub">Waiting…</div>
+  </div>
+
+  <div id="eliminated">
+    <div class="card">
+      <h1>ELIMINATED</h1>
+      <p>You’re out. You are now a finder/catcher!</p>
+    </div>
+  </div>
+
+  <script>
+    // ============================================================
+    // Hash params
+    // ============================================================
+    function parseHashParams() {
+      const h = (location.hash || "").replace(/^#/, "").trim();
+      const out = {};
+      if (!h) return out;
+      for (const part of h.split("&")) {
+        const [k, v] = part.split("=");
+        if (!k) continue;
+        out[decodeURIComponent(k)] = decodeURIComponent(v || "");
+      }
+      return out;
+    }
+    function setHashParams(params) {
+      const parts = [];
+      for (const [k, v] of Object.entries(params)) {
+        parts.push(encodeURIComponent(k) + "=" + encodeURIComponent(String(v)));
+      }
+      location.hash = parts.join("&");
+    }
+
+    // ============================================================
+    // Seeded RNG (Mulberry32)
+    // ============================================================
+    function mulberry32(seed) {
+      let t = seed >>> 0;
+      return function() {
+        t += 0x6D2B79F5;
+        let x = Math.imul(t ^ (t >>> 15), 1 | t);
+        x ^= x + Math.imul(x ^ (t >>> 7), 61 | x);
+        return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    // ============================================================
+    // Map
+    // ============================================================
+    const map = L.map('map', { zoomControl: true });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    map.setView([59.3293, 18.0686], 13);
+
+    // Local-only self marker (never shared)
+    let selfMarker = null;
+    function setSelfMarker(latlng){
+      if (!selfMarker) selfMarker = L.circleMarker(latlng, { radius: 7, weight: 2 }).addTo(map);
+      else selfMarker.setLatLng(latlng);
+    }
+    if (navigator.geolocation) {
+      navigator.geolocation.watchPosition(
+        (pos) => setSelfMarker([pos.coords.latitude, pos.coords.longitude]),
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 1000, timeout: 8000 }
+      );
+    }
+
+    // Storm circle
+    let stormCircle = null;
+    function drawStorm(centerLatLng, radiusMeters) {
+      if (!stormCircle) stormCircle = L.circle(centerLatLng, { radius: radiusMeters, weight: 3, fillOpacity: 0.08 }).addTo(map);
+      else { stormCircle.setLatLng(centerLatLng); stormCircle.setRadius(radiusMeters); }
+    }
+
+    // Host start center marker
+    let startCenterMarker = null;
+    let chosenStartCenter = null;
+
+    function setStartCenter(latlng){
+      chosenStartCenter = latlng;
+      if (!startCenterMarker) {
+        startCenterMarker = L.marker(latlng, { draggable: true }).addTo(map);
+        startCenterMarker.on("dragend", () => {
+          chosenStartCenter = startCenterMarker.getLatLng();
+          previewStartCircle();
+          enableHostPanel();
+        });
+      } else startCenterMarker.setLatLng(latlng);
+
+      previewStartCircle();
+      enableHostPanel();
+    }
+
+    // ============================================================
+    // Deterministic storm geometry
+    // ============================================================
+    function randomPointInDiskMeters(center, maxR, rng) {
+      const u = rng();
+      const v = rng();
+      const r = Math.sqrt(u) * maxR;
+      const theta = 2 * Math.PI * v;
+
+      const east = r * Math.cos(theta);
+      const north = r * Math.sin(theta);
+
+      const lat = center.lat;
+      const metersPerDegLat = 111320;
+      const metersPerDegLng = 111320 * Math.cos(lat * Math.PI/180);
+
+      return L.latLng(lat + (north / metersPerDegLat), center.lng + (east / metersPerDegLng));
+    }
+    function chooseNextCenter(currentCenter, currentR, nextR, rng) {
+      const maxShift = Math.max(0, currentR - nextR);
+      return randomPointInDiskMeters(currentCenter, maxShift, rng);
+    }
+
+    // ============================================================
+    // State
+    // ============================================================
+    // activeState exists when loaded from URL (guest) or after host pressed Start
+    let activeState = null;
+
+    function buildSeededPhases(st) {
+      const rng = mulberry32(st.seed);
+      let curCenter = L.latLng(st.baseCenter.lat, st.baseCenter.lng);
+      let curR = st.baseRadiusM;
+
+      const phases = [];
+      for (let i = 0; i < st.phasesCount; i++) {
+        const nextR = Math.max(30, curR * st.shrinkFactor);
+        const nextCenter = chooseNextCenter(curCenter, curR, nextR, rng);
+        phases.push({ toCenter: { lat: nextCenter.lat, lng: nextCenter.lng }, toRadiusM: nextR });
+        curCenter = nextCenter;
+        curR = nextR;
+      }
+      return phases;
+    }
+
+    function computePhaseAtTime(st, tMs) {
+      const start = st.startedAtMs;
+      const delayEnd = start + st.delaySec*1000;
+      if (tMs < start) return { kind: "prestart" };
+
+      if (tMs < delayEnd) {
+        return { kind: "delay", center: st.baseCenter, radiusM: st.baseRadiusM, tLeftMs: delayEnd - tMs };
+      }
+
+      let curCenter = st.baseCenter;
+      let curR = st.baseRadiusM;
+      let cursor = delayEnd;
+
+      for (let i = 0; i < st.phases.length; i++) {
+        const ph = st.phases[i];
+        const shrinkEnd = cursor + st.shrinkSec*1000;
+        const holdEnd = shrinkEnd + st.holdSec*1000;
+
+        if (tMs < shrinkEnd) {
+          const a = (tMs - cursor) / (st.shrinkSec*1000);
+          const radiusM = curR + (ph.toRadiusM - curR) * a;
+          const center = {
+            lat: curCenter.lat + (ph.toCenter.lat - curCenter.lat) * a,
+            lng: curCenter.lng + (ph.toCenter.lng - curCenter.lng) * a
+          };
+          return { kind: "shrinking", phaseIndex: i+1, phaseCount: st.phases.length, center, radiusM, tLeftMs: shrinkEnd - tMs };
+        }
+
+        if (tMs < holdEnd) {
+          return { kind: "holding", phaseIndex: i+1, phaseCount: st.phases.length, center: ph.toCenter, radiusM: ph.toRadiusM, tLeftMs: holdEnd - tMs };
+        }
+
+        curCenter = ph.toCenter;
+        curR = ph.toRadiusM;
+        cursor = holdEnd;
+      }
+
+      return { kind: "finished", center: curCenter, radiusM: curR };
+    }
+
+    // ============================================================
+    // Health (local-only)
+    // ============================================================
+    let health = 100;
+    let eliminated = false;
+    let lastTickMs = Date.now();
+
+    const healthValueEl = document.getElementById("healthValue");
+    const healthSubEl = document.getElementById("healthSub");
+    const eliminatedEl = document.getElementById("eliminated");
+
+    function setHealth(val){
+      health = Math.max(0, Math.min(100, val));
+      healthValueEl.textContent = String(Math.round(health));
+      if (health <= 0 && !eliminated) {
+        eliminated = true;
+        eliminatedEl.style.display = "flex";
+        healthSubEl.textContent = "You are OUT.";
+      }
+    }
+
+    function isOutsideCircle(selfLatLng, center, radiusM) {
+      if (!selfLatLng) return false;
+      const c = L.latLng(center.lat, center.lng);
+      return selfLatLng.distanceTo(c) > radiusM;
+    }
+
+    // ============================================================
+    // UI refs
+    // ============================================================
+    const panel = document.getElementById("panel");
+    const pickOverlay = document.getElementById("pickOverlay");
+    const showUiWrap = document.getElementById("showUiWrap");
+    const showUiBtn = document.getElementById("showUiBtn");
+    const hideUiBtn = document.getElementById("hideUiBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const startBtn = document.getElementById("startBtn");
+    const copyBtn = document.getElementById("copyBtn");
+    const statusEl = document.getElementById("status");
+
+    const startRadiusEl = document.getElementById("startRadius");
+    const delaySecEl = document.getElementById("delaySec");
+    const shrinkFactorEl = document.getElementById("shrinkFactor");
+    const shrinkTimeEl = document.getElementById("shrinkTime");
+    const holdTimeEl = document.getElementById("holdTime");
+    const phasesEl = document.getElementById("phases");
+    const dpsEl = document.getElementById("dps");
+
+    const v_radius = document.getElementById("v_radius");
+    const v_delay  = document.getElementById("v_delay");
+    const v_factor = document.getElementById("v_factor");
+    const v_shrink = document.getElementById("v_shrink");
+    const v_hold   = document.getElementById("v_hold");
+    const v_phases = document.getElementById("v_phases");
+    const v_dps    = document.getElementById("v_dps");
+
+    function reflectSliderValues(){
+      v_radius.textContent = `${startRadiusEl.value} m`;
+      v_delay.textContent  = `${delaySecEl.value} s`;
+      v_factor.textContent = `${Number(shrinkFactorEl.value).toFixed(2)}`;
+      v_shrink.textContent = `${shrinkTimeEl.value} s`;
+      v_hold.textContent   = `${holdTimeEl.value} s`;
+      v_phases.textContent = `${phasesEl.value}`;
+      v_dps.textContent    = `${dpsEl.value} /s`;
+    }
+    reflectSliderValues();
+
+    function previewStartCircle(){
+      const r = Number(startRadiusEl.value);
+      if (chosenStartCenter && r > 0) drawStorm(chosenStartCenter, r);
+    }
+
+    function enableHostPanel(){
+      // Only host mode shows panel; guests never see it.
+      if (activeState) return; // if already started/loaded, don't show host setup
+      pickOverlay.style.display = "none";
+      panel.classList.remove("hidden");
+      showUiWrap.style.display = "none";
+      startBtn.disabled = !chosenStartCenter;
+      previewStartCircle();
+    }
+
+    function hideHostPanel(){
+      panel.classList.add("hidden");
+      showUiWrap.style.display = "block";
+    }
+
+    hideUiBtn.onclick = hideHostPanel;
+    showUiBtn.onclick = () => {
+      panel.classList.remove("hidden");
+      showUiWrap.style.display = "none";
+    };
+
+    // Slider changes update preview + labels
+    for (const el of [startRadiusEl, delaySecEl, shrinkFactorEl, shrinkTimeEl, holdTimeEl, phasesEl, dpsEl]) {
+      el.addEventListener("input", () => {
+        reflectSliderValues();
+        if (!activeState) previewStartCircle();
+      });
+    }
+
+    // ============================================================
+    // Host flow: choose center FIRST
+    // ============================================================
+    function isGuestLinkPresent() {
+      const p = parseHashParams();
+      return !!p.v;
+    }
+
+    // If not a guest link, start in "host pick center" mode with no panel.
+    // Tapping map sets center and reveals panel.
+    map.on("click", (e) => {
+      if (activeState) return;          // guests/started game: no host setup
+      if (isGuestLinkPresent()) return; // if link present but failed parse, still treat as guest-ish
+      setStartCenter(e.latlng);
+    });
+
+    // ============================================================
+    // Load from hash (guest mode) — hides host UI
+    // ============================================================
+    function loadFromHash() {
+      const p = parseHashParams();
+      if (!p || !p.v) return false;
+
+      // Guest mode: hide host UI permanently
+      pickOverlay.style.display = "none";
+      panel.classList.add("hidden");
+      showUiWrap.style.display = "none";
+
+      const v = Number(p.v);
+      if (v !== 1) { healthSubEl.textContent = "Bad link version."; return false; }
+
+      const baseCenter = { lat: Number(p.lat), lng: Number(p.lng) };
+      const baseRadiusM = Number(p.r);
+      const delaySec = Number(p.delay);
+      const shrinkFactor = Number(p.factor);
+      const shrinkSec = Number(p.shrink);
+      const holdSec = Number(p.hold);
+      const phasesCount = Number(p.phases);
+      const dps = Number(p.dps);
+      const seed = Number(p.seed) >>> 0;
+      const startedAtMs = Number(p.t0);
+
+      if (![baseCenter.lat, baseCenter.lng, baseRadiusM, seed, startedAtMs].every(Number.isFinite)) {
+        healthSubEl.textContent = "Invalid link.";
+        return false;
+      }
+
+      activeState = {
+        version: 1,
+        seed,
+        startedAtMs,
+        baseCenter,
+        baseRadiusM,
+        delaySec,
+        shrinkFactor,
+        shrinkSec,
+        holdSec,
+        phasesCount,
+        dps,
+        phases: []
+      };
+      activeState.phases = buildSeededPhases(activeState);
+
+      map.setView([baseCenter.lat, baseCenter.lng], 14);
+      drawStorm(baseCenter, baseRadiusM);
+
+      eliminated = false;
+      eliminatedEl.style.display = "none";
+      setHealth(100);
+      healthSubEl.textContent = "Game running.";
+      return true;
+    }
+
+    // ============================================================
+    // Host Start -> generates seeded link, activates state, enables copy
+    // ============================================================
+    function setHashParamsSafe(params) { setHashParams(params); }
+
+    startBtn.onclick = () => {
+      if (!chosenStartCenter) return;
+
+      const seed = (crypto?.getRandomValues)
+        ? (crypto.getRandomValues(new Uint32Array(1))[0] >>> 0)
+        : (Math.floor(Math.random() * 2147483647) >>> 0);
+
+      const startedAtMs = Date.now();
+
+      const cfg = {
+        baseRadiusM: Number(startRadiusEl.value),
+        delaySec: Number(delaySecEl.value),
+        shrinkFactor: Number(shrinkFactorEl.value),
+        shrinkSec: Number(shrinkTimeEl.value),
+        holdSec: Number(holdTimeEl.value),
+        phasesCount: Number(phasesEl.value),
+        dps: Number(dpsEl.value)
+      };
+
+      const params = {
+        v: 1,
+        lat: chosenStartCenter.lat.toFixed(6),
+        lng: chosenStartCenter.lng.toFixed(6),
+        r: Math.round(cfg.baseRadiusM),
+        delay: Math.round(cfg.delaySec),
+        factor: cfg.shrinkFactor.toFixed(2),
+        shrink: Math.round(cfg.shrinkSec),
+        hold: Math.round(cfg.holdSec),
+        phases: Math.round(cfg.phasesCount),
+        dps: Math.round(cfg.dps),
+        seed: seed,
+        t0: startedAtMs
+      };
+
+      setHashParamsSafe(params);
+
+      // Activate as if guest loaded (but host keeps ability to copy/hide UI)
+      activeState = {
+        version: 1,
+        seed,
+        startedAtMs,
+        baseCenter: { lat: Number(params.lat), lng: Number(params.lng) },
+        baseRadiusM: Number(params.r),
+        delaySec: Number(params.delay),
+        shrinkFactor: Number(params.factor),
+        shrinkSec: Number(params.shrink),
+        holdSec: Number(params.hold),
+        phasesCount: Number(params.phases),
+        dps: Number(params.dps),
+        phases: []
+      };
+      activeState.phases = buildSeededPhases(activeState);
+
+      copyBtn.disabled = false;
+      statusEl.textContent = "Started. Copy and share the link.";
+      healthSubEl.textContent = "Game running.";
+
+      // Keep panel visible, but user can hide it.
+    };
+
+    copyBtn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(location.href);
+        statusEl.textContent = "Copied share link ✅";
+      } catch {
+        prompt("Copy this link:", location.href);
+      }
+    };
+
+    resetBtn.onclick = () => {
+      // Only host reset (no server): clear hash and local state
+      location.hash = "";
+      activeState = null;
+
+      eliminated = false;
+      eliminatedEl.style.display = "none";
+      setHealth(100);
+      healthSubEl.textContent = "Waiting…";
+
+      if (stormCircle) { map.removeLayer(stormCircle); stormCircle = null; }
+      if (startCenterMarker) { map.removeLayer(startCenterMarker); startCenterMarker = null; }
+
+      chosenStartCenter = null;
+      copyBtn.disabled = true;
+      startBtn.disabled = true;
+
+      // Hide panel until center picked again
+      panel.classList.add("hidden");
+      showUiWrap.style.display = "none";
+      pickOverlay.style.display = "flex";
+      statusEl.textContent = "Reset. Tap the map to pick a new center.";
+    };
+
+    // ============================================================
+    // Initial mode selection
+    // ============================================================
+    if (loadFromHash()) {
+      // Guest mode: host UI hidden already
+    } else {
+      // Host setup mode
+      panel.classList.add("hidden");      // hidden until center chosen
+      showUiWrap.style.display = "none";
+      pickOverlay.style.display = "flex"; // tell host to tap
+      statusEl.textContent = "Tap the map to pick start center.";
+    }
+
+    window.addEventListener("hashchange", () => {
+      // If someone opens a new link while running, load it and hide host UI
+      loadFromHash();
+    });
+
+    // ============================================================
+    // Main loop: render storm + health
+    // ============================================================
+    function loop() {
+      const t = Date.now();
+      const dt = Math.max(0, (t - lastTickMs) / 1000);
+      lastTickMs = t;
+
+      if (activeState) {
+        const ph = computePhaseAtTime(activeState, t);
+        if (ph?.center && typeof ph.radiusM === "number") drawStorm(ph.center, ph.radiusM);
+
+        if (!eliminated) {
+          const myPos = selfMarker ? selfMarker.getLatLng() : null;
+          const center = ph?.center ?? activeState.baseCenter;
+          const radiusM = ph?.radiusM ?? activeState.baseRadiusM;
+
+          if (ph?.kind === "delay") {
+            healthSubEl.textContent = `Storm starts in ${Math.ceil(ph.tLeftMs/1000)}s (no damage).`;
+          } else {
+            const outside = isOutsideCircle(myPos, center, radiusM);
+            if (outside) {
+              setHealth(health - activeState.dps * dt);
+              healthSubEl.textContent = "OUTSIDE safe zone! Taking damage…";
+            } else {
+              healthSubEl.textContent = "Inside safe zone.";
+            }
+          }
+        }
+      }
+
+      requestAnimationFrame(loop);
+    }
+    loop();
+  </script>
+</body>
+</html>
