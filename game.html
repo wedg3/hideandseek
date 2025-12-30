@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -286,6 +287,117 @@
       color: rgba(255,255,255,.95);
       text-shadow: 0 2px 10px rgba(0,0,0,.6);
     }
+	
+	/* Big status + caught button dock (bottom center) */
+#statusDock{
+  position: fixed;
+  left: 50%;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 1150;           /* above bigStatus */
+  width: min(520px, calc(100vw - 28px));
+  pointer-events: none;    /* lets map work normally */
+}
+
+/* Keep bigStatus layout as before */
+#statusDock #bigStatus{
+  position: relative;      /* no longer fixed; dock is fixed */
+  left: auto;
+  bottom: auto;
+  transform: none;
+  width: 100%;
+}
+
+/* Clickable button (override dock pointer-events) */
+#caughtBtn{
+  pointer-events: auto;
+  position: absolute;
+  right: 0;
+  top: -78px;              /* places it above the status box */
+  width: 62px;
+  height: 62px;
+  border-radius: 999px;
+  border: 2px solid rgba(255,255,255,.95);
+  background: #d11b1b;
+  color: #fff;
+  font-weight: 1000;
+  font-size: 11px;
+  line-height: 1.05;
+  padding: 6px;
+  cursor: pointer;
+  box-shadow: 0 10px 26px rgba(0,0,0,.35);
+  user-select: none;
+}
+
+#caughtBtn:hover{ filter: brightness(1.08); }
+#caughtBtn:active{ transform: translateY(1px); filter: brightness(.98); }
+
+/* Fullscreen overlay */
+#caughtConfirm{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+}
+
+.caughtHidden{
+  display: none !important;
+}
+
+/* Red warning box */
+.caughtBox{
+  background: #b31212;
+  border: 3px solid rgba(255,255,255,.95);
+  border-radius: 16px;
+  padding: 22px 26px;
+  min-width: 260px;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0,0,0,.45);
+  color: #fff;
+}
+
+.caughtTitle{
+  font-size: 18px;
+  font-weight: 900;
+  margin-bottom: 18px;
+}
+
+/* Buttons */
+.caughtButtons{
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+}
+
+.caughtButtons button{
+  min-width: 90px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 2px solid rgba(255,255,255,.9);
+  font-weight: 800;
+  cursor: pointer;
+  background: #fff;
+  color: #900;
+}
+
+.caughtButtons button:hover{
+  filter: brightness(.95);
+}
+
+#caughtYes{
+  background: #fff;
+  color: #900;
+}
+
+#caughtNo{
+  background: rgba(255,255,255,.15);
+  color: #fff;
+}
+
+
   </style>
 </head>
 <body>
@@ -308,28 +420,30 @@
 
     <div class="row">
       <div class="rowHeader"><div class="label">Start radius (m)</div><div class="val" id="v_radius"></div></div>
-      <input id="startRadius" type="range" min="100" max="5000" step="50" value="1200" />
+      <input id="startRadius" type="range" min="100" max="5000" step="50" value="1000" />
     </div>
 
     <div class="row">
       <div class="rowHeader"><div class="label">Time before game starts (s)</div><div class="val" id="v_delay"></div></div>
-      <input id="delaySec" type="range" min="0" max="600" step="10" value="60" />
+      <input id="delaySec" type="range" min="0" max="600" step="10" value="100" />
     </div>
 
     <div class="row">
-      <div class="rowHeader"><div class="label">Rest time between storm shrinkage (s)</div><div class="val" id="v_hold"></div></div>
-      <input id="holdTime" type="range" min="0" max="180" step="5" value="20" />
+      <div class="rowHeader"><div class="label">Rest time at start:&nbsp;&nbsp;<span id="v_holdRec" style="opacity:.85;font-weight:300;"></span></div><div class="val" id="v_hold"></div></div>
+      <input id="holdTime" type="range" min="0" max="1000" step="5" value="300" />
     </div>
 
     <div class="row">
       <div class="rowHeader"><div class="label">Game duration (min)</div><div class="val" id="v_gameMin"></div></div>
-      <input id="gameMin" type="range" min="5" max="120" step="5" value="30" />
+      <input id="gameMin" type="range" min="5" max="120" step="5" value="45" />
     </div>
 
     <div class="row">
       <div class="rowHeader"><div class="label">Storm damage per second</div><div class="val" id="v_dps"></div></div>
-      <input id="dps" type="range" min="1" max="30" step="1" value="3" />
+      <input id="dps" type="range" min="1" max="10" step="1" value="1" />
     </div>
+
+
 
 
 
@@ -362,10 +476,16 @@
     <div id="healthValue">100</div>
   </div>
 
-  <!-- Big status -->
-  <div id="bigStatus">
-    <div class="main" id="bsMain">Waiting…</div>
-    <div class="sub" id="bsSub"></div>
+  <!-- Big status + caught button dock -->
+  <div id="statusDock">
+    <button id="caughtBtn" type="button" aria-label="Hit if caught">
+      Press if<br>caught
+    </button>
+
+    <div id="bigStatus">
+      <div class="main" id="bsMain">Waiting…</div>
+      <div class="sub" id="bsSub"></div>
+    </div>
   </div>
 
   <!-- Eliminated visuals (non-interactable) -->
@@ -377,12 +497,40 @@
     </div>
   </div>
 
+
+
+<!-- Caught confirmation modal -->
+<div id="caughtConfirm" class="caughtHidden">
+  <div class="caughtBox">
+    <div class="caughtTitle">⚠️ Are you really caught?</div>
+    <div class="caughtButtons">
+      <button id="caughtYes">Yes</button>
+      <button id="caughtNo">No</button>
+    </div>
+  </div>
+</div>
+
+
   <script>
     // ============================================================
     // Hash params
     // ============================================================
 	
 	let wakeLock = null;
+
+const v_holdRec = document.getElementById("v_holdRec");
+
+function fmtMinSec(totalSec){
+  const m = Math.floor(totalSec / 60);
+  const s = Math.round(totalSec % 60);
+  return s ? `${m}m ${s}s` : `${m}m`;
+}
+
+function recommendedHoldSecFromRadius(radiusM){
+  // 1km -> 300s (5 min)
+  return Math.round((radiusM / 1000) * 300);
+}
+
 
 	async function requestWakeLock() {
 	  try {
@@ -393,6 +541,17 @@
 		// silently fail (unsupported or denied)
 	  }
 	}
+
+function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+// Option A: rest time decreases with radius.
+// baseHoldSec = slider value ("rest time at start")
+// r0 = start radius, r = current radius
+function holdSecForRadius(baseHoldSec, r, r0){
+  // proportional scaling feels intuitive: half radius => half rest time
+  const raw = baseHoldSec * (r / Math.max(1, r0));
+  return clamp(Math.round(raw), 3, Math.round(baseHoldSec)); // min 3s, max base
+}
 
 	function releaseWakeLock() {
 	  try {
@@ -677,42 +836,82 @@
         return { kind: "delay", center: c0.center, radiusM: c0.radiusM, tLeftMs: delayEnd - tMs, endAtMs: endAt };
       }
 
-      const elapsed = tMs - delayEnd;
-      const cycleMs = (st.holdSec + st.moveSec) * 1000;
-      const idx = Math.floor(elapsed / Math.max(1, cycleMs)); // move index
-      const within = elapsed - idx * cycleMs;
+const elapsed = tMs - delayEnd;
 
-      const from = st.circles[Math.min(idx, st.circles.length - 2)];
-      const to   = st.circles[Math.min(idx + 1, st.circles.length - 1)];
+// Move time stays constant
+const moveMs = st.moveSec * 1000;
 
-      const holdMs = st.holdSec * 1000;
-      if (within < holdMs) {
-        return {
-          kind: "holding",
-          center: from.center,
-          radiusM: from.radiusM,
-          nextCenter: to.center,
-          nextRadiusM: to.radiusM,
-          tLeftMs: holdMs - within,
-          endAtMs: endAt
-        };
-      }
+// Start with a nominal estimate, then correct with dynamic holds
+const nominalHoldMs = st.holdSec * 1000;
+const nominalCycleMs = nominalHoldMs + moveMs;
 
-      const moveMs = st.moveSec * 1000;
-      const a = Math.min(1, Math.max(0, (within - holdMs) / Math.max(1, moveMs)));
+let idx = Math.floor(elapsed / Math.max(1, nominalCycleMs));
+idx = clamp(idx, 0, st.circles.length - 2);
 
-      return {
-        kind: "shrinking",
-        center: {
-          lat: from.center.lat + (to.center.lat - from.center.lat) * a,
-          lng: from.center.lng + (to.center.lng - from.center.lng) * a
-        },
-        radiusM: from.radiusM + (to.radiusM - from.radiusM) * a,
-        nextCenter: to.center,
-        nextRadiusM: to.radiusM,
-        tLeftMs: moveMs - (within - holdMs),
-        endAtMs: endAt
-      };
+// Compute the true time cursor at the start of this idx using dynamic hold times
+let tCursor = 0; // ms since delayEnd at start of idx=0
+for (let i = 0; i < idx; i++) {
+  const rHere = st.circles[i].radiusM;
+  const holdHereMs = holdSecForRadius(st.holdSec, rHere, st.baseRadiusM) * 1000;
+  tCursor += holdHereMs + moveMs;
+}
+
+// Correct overshoot/undershoot
+while (idx > 0) {
+  const prevR = st.circles[idx - 1].radiusM;
+  const prevHoldMs = holdSecForRadius(st.holdSec, prevR, st.baseRadiusM) * 1000;
+  const prevSegMs = prevHoldMs + moveMs;
+  if (tCursor <= elapsed) break;
+  idx--;
+  tCursor -= prevSegMs;
+}
+
+while (idx < st.circles.length - 2) {
+  const rHere = st.circles[idx].radiusM;
+  const holdHereMs = holdSecForRadius(st.holdSec, rHere, st.baseRadiusM) * 1000;
+  const segMs = holdHereMs + moveMs;
+  if (tCursor + segMs > elapsed) break;
+  tCursor += segMs;
+  idx++;
+}
+
+const within = elapsed - tCursor;
+
+const from = st.circles[idx];
+const to   = st.circles[idx + 1];
+
+// Dynamic hold based on CURRENT radius (Option A)
+const holdMs = holdSecForRadius(st.holdSec, from.radiusM, st.baseRadiusM) * 1000;
+
+// If we are still resting, return a holding phase
+if (within < holdMs) {
+  return {
+    kind: "holding",
+    center: from.center,
+    radiusM: from.radiusM,
+    nextCenter: to.center,
+    nextRadiusM: to.radiusM,
+    tLeftMs: holdMs - within,
+    endAtMs: endAt
+  };
+}
+
+// Otherwise we are moving/shrinking between circles
+const a = Math.min(1, Math.max(0, (within - holdMs) / Math.max(1, moveMs)));
+
+return {
+  kind: "shrinking",
+  center: {
+    lat: from.center.lat + (to.center.lat - from.center.lat) * a,
+    lng: from.center.lng + (to.center.lng - from.center.lng) * a
+  },
+  radiusM: from.radiusM + (to.radiusM - from.radiusM) * a,
+  nextCenter: to.center,
+  nextRadiusM: to.radiusM,
+  tLeftMs: moveMs - (within - holdMs),
+  endAtMs: endAt
+};
+
     }
 
     // ============================================================
@@ -743,6 +942,26 @@
         elimFrame.style.display = "block";
       }
     }
+	
+	// "I have been caught" button → eliminate player
+const caughtBtn = document.getElementById("caughtBtn");
+const caughtConfirm = document.getElementById("caughtConfirm");
+const caughtYes = document.getElementById("caughtYes");
+const caughtNo = document.getElementById("caughtNo");
+
+caughtBtn.addEventListener("click", () => {
+  if (eliminated) return;
+  caughtConfirm.classList.remove("caughtHidden");
+});
+
+caughtNo.addEventListener("click", () => {
+  caughtConfirm.classList.add("caughtHidden");
+});
+
+caughtYes.addEventListener("click", () => {
+  caughtConfirm.classList.add("caughtHidden");
+  setHealth(0); // exact same elimination path as storm
+});
 
     function isOutsideCircle(selfLatLng, center, radiusM) {
       if (!selfLatLng) return false;
@@ -872,6 +1091,10 @@
       v_hold.textContent   = `${holdTimeEl.value} s`;
       v_gameMin.textContent = `${gameMinEl.value} min`;
       v_dps.textContent    = `${dpsEl.value} /s`;
+	  
+	  const rec = recommendedHoldSecFromRadius(Number(startRadiusEl.value));
+v_holdRec.textContent = `recommended: ${Math.round(rec)} seconds.`;
+
     }
     reflectSliderValues();
 
