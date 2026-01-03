@@ -159,10 +159,10 @@
     /* Fuel HUD (top right) */
     #fuelHudOver{
       position: fixed;
-      right: 10px;
-      top: 5px;
+      right: 2px;
+      top: 2px;
       z-index: 1400;
-      padding: 6px 3px;
+      padding: 1px 1px;
       color: #fff;
       display: flex;
       flex-direction: column;
@@ -383,17 +383,17 @@
 
     <div class="row">
       <div class="rowHeader"><div class="label">Time before game starts (s)</div><div class="val" id="v_delay"></div></div>
-      <input id="delaySec" type="range" min="0" max="600" step="20" value="100" />
+      <input id="delaySec" type="range" min="0" max="600" step="20" value="20" />
     </div>
 
     <div class="row">
       <div class="rowHeader"><div class="label">Warning time (s) (cells turn red)</div><div class="val" id="v_warn"></div></div>
-      <input id="warnSec" type="range" min="10" max="400" step="10" value="300" />
+      <input id="warnSec" type="range" min="10" max="300" step="10" value="40" />
     </div>
 
     <div class="row">
       <div class="rowHeader"><div class="label">Fuel drain in holes (per second)</div><div class="val" id="v_fuelDrain"></div></div>
-      <input id="fuelDrain" type="range" min="1" max="5" step="1" value="3" />
+      <input id="fuelDrain" type="range" min="1" max="5" step="1" value="2" />
     </div>
 
     <!-- Replaces Game duration slider -->
