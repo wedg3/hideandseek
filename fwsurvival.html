@@ -26,9 +26,9 @@
       border-radius: 4px;
       padding: 10px 12px;
       box-shadow: 0 10px 30px rgba(0,0,0,.12);
-      backdrop-filter: blur(1px);
+     
       z-index: 10001;
-      -webkit-backdrop-filter: blur(1px);
+    
       font-weight:400;
     }
     #panel.hidden { display:none; }
@@ -68,8 +68,7 @@
       background: rgba(255,255,255,.75);
       color: #111;
       border: 1px solid rgba(0,0,0,.25);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      
     }
     button.hidebutton{
       background: rgba(100,100,255,.55);
@@ -105,8 +104,7 @@
       border-radius: 4px;
       padding: 10px 12px;
       box-shadow: 0 12px 34px rgba(0,0,0,.18);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      
       display: none;
     }
     #areaBar .titleRow{
@@ -153,8 +151,7 @@
       background: rgba(255,255,255,.75);
       color: #111;
       border: 1px solid rgba(0,0,0,.25);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      
       font-weight: 900;
       cursor: pointer;
     }
@@ -188,8 +185,7 @@
       align-items: center;
       gap: 3px;
       min-width: auto;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      
       user-select: none;
       pointer-events: none;
     }
@@ -280,8 +276,7 @@
       padding: 10px 12px;
       color: #fff;
       text-align: center;
-      backdrop-filter: blur(2px);
-      -webkit-backdrop-filter: blur(2px);
+      
       pointer-events: none;
       user-select: none;
     }
@@ -1571,96 +1566,123 @@
     // ============================================================
     // Main loop
     // ============================================================
-    let lastTickMs = Date.now();
-    let lastPhaseKind = null;
 
-    function loop(){
-      const t = Date.now();
-      const dt = Math.max(0, (t - lastTickMs) / 1000);
-      lastTickMs = t;
+// ============================================================
+// Main loop (LOW-FREQUENCY TICK to save battery)
+// ============================================================
 
-      if (activeState){
-        const st = activeState;
-        const ph = computePhaseAtTime(st, t);
+// How often we run game logic (ms). 250 = 4 times/sec.
+const TICK_MS = 500;
 
-        if (!wakeLock) requestWakeLock();
+let lastTickMs = Date.now();
+let lastPhaseKind = null;
 
-        const gameHasStarted = (ph.kind === "warning");
-        setOutsideMaskVisible(gameHasStarted);
+// Avoid spamming DOM writes if text hasn't changed
+let lastBSMain = "";
+let lastBSSub = "";
+let lastBSDanger = null;
 
-        // Always spawn/render pickups even before GPS resolves (but stops once all fallen)
-        if (!eliminated && st.pickups) {
-          updatePickups(st, t, null);
-        }
+function setBigStatusSmart(main, sub, danger){
+  main = main || "";
+  sub  = sub  || "";
+  const d = !!danger;
 
-        if (ph.kind === "warning"){
-          if (st.safeSet.size === 0){
-            if (!st.allFallenNoted){
-              st.allFallenNoted = true;
-            }
-            setBigStatus("All ground has fallen", "Fuel draining…", true);
-          } else {
-            const sLeft = Math.ceil(ph.tLeftMs/1000);
-            setBigStatus("Move from the red areas!", "They will fall in " + sLeft + "s", false);
+  if (main === lastBSMain && sub === lastBSSub && d === lastBSDanger) return;
 
-            if (st.lastAppliedCycle !== ph.cycleIndex || lastPhaseKind !== "warning"){
-              if (st.lastAppliedCycle >= 0 && st.activeFallSet && st.activeFallSet.length){
-                applyFall(st, t);
-              }
-              st.lastAppliedCycle = ph.cycleIndex;
-              setWarningCells(st, ph.cycleIndex);
-            }
-          }
-        }
-        else if (ph.kind === "delay"){
-          const s = Math.ceil(ph.tLeftMs/1000);
-          setBigStatus("Time until game starts", s + "s", false);
-        }
+  lastBSMain = main;
+  lastBSSub = sub;
+  lastBSDanger = d;
+  setBigStatus(main, sub, d);
+}
 
-        // Player checks (only if we have location) - run during warning & after delay too
-        if (!eliminated && (ph.kind === "warning" || ph.kind === "delay")){
+// Utility so we can stop ticking if needed later
+let tickTimer = null;
 
-          const myPos = selfMarker ? selfMarker.getLatLng() : null;
-          if (myPos){
-            const unrot = pointToLocalUnrot(st, myPos);
-            const inside = isInsideRectUnrot(st, unrot.x, unrot.y);
+function tick(){
+  const t = Date.now();
 
-            if (st.pickups) updatePickups(st, t, myPos);
+  // dt in seconds since last tick (important for fuel drain)
+  const dt = Math.max(0, (t - lastTickMs) / 1000);
+  lastTickMs = t;
 
-            const drainRate = (st.fuelDrainPerSec || 18);
+  if (!activeState) return;
 
-            if (!inside){
-              // Outside drains fuel always once the game link is loaded,
-              // but we only "activate" the outside mask visually after delay.
-              // (You can change this if you only want outside drain after delay.)
-              if (ph.kind === "warning"){
-                setFuel(fuel - drainRate * dt);
-                if (fuel <= 0.001){
-                  setFuel(0);
-                  eliminate("Out of fuel outside the area");
-                }
-              }
-            } else {
-              const myCell = localXYToCellId(st, unrot.x, unrot.y);
-              const inFallen = (myCell >= 0 && cellState[myCell] === 2);
+  const st = activeState;
+  const ph = computePhaseAtTime(st, t);
 
-              if (inFallen){
-                setFuel(fuel - drainRate * dt);
-                if (fuel <= 0.001){
-                  setFuel(0);
-                  eliminate("Out of fuel in a hole");
-                }
-              }
-            }
-          }
-        }
+  // Wake lock: keep your behavior, but now requested less often
+  if (!wakeLock) requestWakeLock();
 
-        lastPhaseKind = ph.kind;
+  // Outside mask after delay
+  const gameHasStarted = (ph.kind === "warning" || ph.kind === "falling" || ph.kind === "finished");
+  setOutsideMaskVisible(gameHasStarted);
+
+  // Spawn/render pickups even before GPS resolves (no collection without position)
+  if (!eliminated && st.pickups) {
+    updatePickups(st, t, null);
+  }
+
+  // Status text
+  if (ph.kind === "warning"){
+    const sLeft = Math.ceil(ph.tLeftMs / 1000);
+    setBigStatusSmart("Move from the red areas!", "They will fall in " + sLeft + "s", false);
+
+    // On new cycle: drop last cycle then choose new reds
+    if (st.lastAppliedCycle !== ph.cycleIndex || lastPhaseKind !== "warning"){
+      if (st.lastAppliedCycle >= 0 && st.activeFallSet && st.activeFallSet.length){
+        applyFall(st, t);
       }
-
-      requestAnimationFrame(loop);
+      st.lastAppliedCycle = ph.cycleIndex;
+      setWarningCells(st, ph.cycleIndex);
     }
-    loop();
+  }
+  else if (ph.kind === "delay"){
+    const s = Math.ceil(ph.tLeftMs / 1000);
+    setBigStatusSmart("Time until game starts", s + "s", false);
+  }
+  else if (ph.kind === "finished"){
+    setBigStatusSmart("Game ended", "", false);
+  }
+
+  // Player checks (only if we have location)
+  if (!eliminated && (ph.kind === "warning" || ph.kind === "falling")){
+    const myPos = selfMarker ? selfMarker.getLatLng() : null;
+
+    if (myPos){
+      const unrot = pointToLocalUnrot(st, myPos);
+      const inside = isInsideRectUnrot(st, unrot.x, unrot.y);
+
+      // allow collection when we do have location
+      if (st.pickups) updatePickups(st, t, myPos);
+
+      const drainRate = (st.fuelDrainPerSec || 18);
+
+      if (!inside){
+        setFuel(fuel - drainRate * dt);
+        if (fuel <= 0.001){
+          setFuel(0);
+          eliminate("Out of fuel outside the area");
+        }
+      } else {
+        const myCell = localXYToCellId(st, unrot.x, unrot.y);
+        const inFallen = (myCell >= 0 && cellState[myCell] === 2);
+
+        if (inFallen){
+          setFuel(fuel - drainRate * dt);
+          if (fuel <= 0.001){
+            setFuel(0);
+            eliminate("Out of fuel in a hole");
+          }
+        }
+      }
+    }
+  }
+
+  lastPhaseKind = ph.kind;
+}
+
+// Start ticking
+tickTimer = setInterval(tick, TICK_MS);
 
     // ============================================================
     // Init
